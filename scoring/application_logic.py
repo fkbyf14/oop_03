@@ -8,9 +8,35 @@ ONLINE_SCORE = "online_score"
 CLIENTS_INTERESTS = "clients_interests"
 
 
+class ValidationError(Exception):
+    def __init__(self, message):
+        self.message = message
+
+
+class Field(object):
+    def __init__(self, field):
+        self.field = field
+        self.label = None
+
+    def __get__(self, instance, owner):
+        print '__get__. Label = %s' % self.label
+        return instance.__dict__.get(self.label, None)
+
+    def __set__(self, instance, value):
+        print '__set__'
+        instance.__dict__[self.label] = value
+
+    def __str__(self):
+        return "{}".format(self.field)
+
+
+class CharField(object):
+    attr = Field()
+
+
 class CharField(object):
     def __init__(self, chars):
-        self.chars = chars
+        self.chars = chars.decode('utf-8')
 
     def __str__(self):
         return "{}".format(self.chars)
@@ -32,105 +58,47 @@ class PhoneField(object):
         if len(phone_num) != 11:
             raise Exception("Oops..! Length of phone number must equal 11")
 
-        self.international_code = international_code
         self.phone_num = phone_num
+
+    def __repr__(self):
+        return "{}".format(self.phone_num)
 
 
 class EmailField(CharField):
-    def __init__(self, email):
+    def __set__(self, instance, email):
         super(EmailField, self).__init__(email)
         if '@' not in email:
-            raise Exception("Oops..! Email must contain the @ character")
+            raise ValidationError("Oops..! Email must contain the @ character")
+        self.email = email
 
 
 class BirthDayField(object):
-    def __init__(self, birthday):
-        self.birthday = datetime.strptime(birthday, "%d%m%Y")
+    def __set__(self, instance, birthday):
+        self.birthday = datetime.strptime(birthday, "%d.%m.%Y")
 
         if datetime.now().year - self.birthday.year > 70:
-            raise Exception("Oops..! The age should not exceed 70")
+            raise ValidationError("Oops..! The age should not exceed 70")
 
 
 class GenderField(object):
-    def __init__(self, gender):
+    def __set__(self, instance, gender):
         if gender not in (0, 1, 2):
-            raise Exception("Oops..! Error in gender")
+            raise ValidationError("Oops..! Error in gender")
 
-
-class OnlineScoreRequest(object):
-    def __init__(self, phone, email, first_name, last_name, birthday, gender):
-        if phone is None:
-            self.phone = ''
-        else:
-            self.phone = PhoneField(phone[0], phone)
-        if email is None:
-            self.email = ''
-        else:
-            self.email = EmailField(email)
-        if first_name is None:
-            self.first_name = ''
-        else:
-            self.first_name = CharField(first_name)
-        if last_name is None:
-            self.last_name = ''
-        else:
-            self.last_name = CharField(last_name)
-        if birthday is None:
-            self.birthday = ''
-        else:
-            self.birthday = BirthDayField(birthday.replace(".", ''))
-        if gender is None:
-            self.gender = ''
-        else:
-            self.gender = GenderField(gender)
-
-
-class MethodRequest(object):
-    def __init__(self, account, login, token, arguments, method):
-        if account is None:
-            self.account = ''
-        else:
-            self.account = CharField(account)
-        if login is None:
-            raise Exception("Please, fill up the login field")
-        else:
-            self.login = CharField(login)
-        if token is None:
-            raise Exception("Please, fill up the token field")
-        else:
-            self.token = CharField(token)
-        if method is None:
-            raise Exception("Please, fill up the method field")
-        else:
-            self.method = CharField(method)
-        if arguments is None:
-            raise Exception("Please, fill up the fields of arguments")
-        else:
-            self.arguments = ArgumentsField(arguments)
-
-    @property
-    def is_online_score(self):
-        return self.method == ONLINE_SCORE
-
-    @property
-    def is_clients_interests(self):
-        return self.method == CLIENTS_INTERESTS
-
-    @property
-    def is_admin(self):
-        return self.login == ADMIN_LOGIN
-
+        self.gender = gender
 
 class DateField(object):
-    def __init__(self, date):
-        self.birthday = datetime.strptime(date, "%d%m%Y")
+    def __set__(self, instance, date):
+        self.birthday = datetime.strptime(date, "%d.%m.%Y")
 
 
 class ClientIDsField(object):
-    def __init__(self, clients_ids):
+    def __set__(self, instance, clients_ids):
+        if not isinstance(clients_ids, list):
+            raise ValidationError("Oops! Clients ids need to be in array")
         for item in clients_ids:
             if not isinstance(item, int):
-                raise Exception("Oops! Clients ids should be integer")
+                raise ValidationError("Oops! Clients ids should be integer")
         self.clients_ids = clients_ids
         self.offset = 0
 
@@ -146,16 +114,77 @@ class ClientIDsField(object):
         return self
 
 
-class ClientsInterestsRequest(object):
-    def __init__(self, client_ids, date):
-        if client_ids is None:
-            raise Exception("Please, fill up the clients_ids field")
-        else:
-            self.client_ids = ClientIDsField(client_ids)
-        if date is None:
-            self.date = ''
-        else:
-            self.date = DateField(date.replace(".", ''))
+class Request(type):
+    account = CharField(required=False, nullable=True)
+    login = CharField(required=True, nullable=True)
+    token = CharField(required=True, nullable=True)
+    arguments = ArgumentsField(required=True, nullable=True)
+    method = CharField(required=True, nullable=False)
+
+    first_name = CharField(required=False, nullable=True)
+    last_name = CharField(required=False, nullable=True)
+    email = EmailField(required=False, nullable=True)
+    phone = PhoneField(required=False, nullable=True)
+    birthday = BirthDayField(required=False, nullable=True)
+    gender = GenderField(required=False, nullable=True)
+
+    client_ids = ClientIDsField(required=True)
+    date = DateField(required=False, nullable=True)
+
+    declared_fields = []
+
+    def __new__(cls, name, bases, attributedict):
+        global declared_fields
+        # find all requests, auto-set their labels
+        for key, value in attributedict.items():
+            if isinstance(value, Field):
+                declared_fields.append((key, value))
+                value.label = key
+        return super(Request, cls).__new__(cls, attributedict)
+
+
+    def __init__(cls, name, bases, attributedict):
+        global declared_fields
+        for key, value in attributedict.items():
+            if (key, value) in declared_fields:
+                key = Field(value)
+
+
+class MethodRequest(object):
+    __metaclass__ = Request
+    account = CharField(required=False, nullable=True)
+    login = CharField(required=True, nullable=True)
+    token = CharField(required=True, nullable=True)
+    arguments = ArgumentsField(required=True, nullable=True)
+    method = CharField(required=True, nullable=False)
+
+    @property
+    def is_admin(self):
+        return self.login == ADMIN_LOGIN
+
+    @property
+    def is_online_score(self):
+        return self.method == ONLINE_SCORE
+
+    @property
+    def is_clients_interests(self):
+        return self.method == CLIENTS_INTERESTS
+
+
+class OnlineScoreRequest(Request):
+    __metaclass__ = Request
+    first_name = CharField(required=False, nullable=True)
+    last_name = CharField(required=False, nullable=True)
+    email = EmailField(required=False, nullable=True)
+    phone = PhoneField(required=False, nullable=True)
+    birthday = BirthDayField(required=False, nullable=True)
+    gender = GenderField(required=False, nullable=True)
+
+
+class ClientsInterestsRequest(Request):
+    __metaclass__ = Request
+    client_ids = ClientIDsField(required=True)
+    date = DateField(required=False, nullable=True)
 
 
 class OnlineScoreResponse(object):
