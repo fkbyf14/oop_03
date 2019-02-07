@@ -30,11 +30,12 @@ class Field(object):
         return "{}".format(self.field)
 
 
-class CharField(object):
-    attr = Field()
+class CharField(Field):
+    #attr = Field()
+    pass
 
 
-class CharField(object):
+class CharField(Field):
     def __init__(self, chars):
         self.chars = chars.decode('utf-8')
 
@@ -42,7 +43,7 @@ class CharField(object):
         return "{}".format(self.chars)
 
 
-class ArgumentsField(object):
+class ArgumentsField(Field):
     def __init__(self, args):
         self.args = args
         """for key in args:
@@ -51,7 +52,7 @@ class ArgumentsField(object):
                 raise Exception("Oops..!Argument should be in line with json")"""
 
 
-class PhoneField(object):
+class PhoneField(Field):
     def __init__(self, international_code, phone_num):
         if international_code != "7":
             raise Exception("Oops..! International code in phone number must equal 7")
@@ -72,7 +73,7 @@ class EmailField(CharField):
         self.email = email
 
 
-class BirthDayField(object):
+class BirthDayField(Field):
     def __set__(self, instance, birthday):
         self.birthday = datetime.strptime(birthday, "%d.%m.%Y")
 
@@ -80,19 +81,20 @@ class BirthDayField(object):
             raise ValidationError("Oops..! The age should not exceed 70")
 
 
-class GenderField(object):
+class GenderField(Field):
     def __set__(self, instance, gender):
         if gender not in (0, 1, 2):
             raise ValidationError("Oops..! Error in gender")
 
         self.gender = gender
 
-class DateField(object):
+
+class DateField(Field):
     def __set__(self, instance, date):
         self.birthday = datetime.strptime(date, "%d.%m.%Y")
 
 
-class ClientIDsField(object):
+class ClientIDsField(Field):
     def __set__(self, instance, clients_ids):
         if not isinstance(clients_ids, list):
             raise ValidationError("Oops! Clients ids need to be in array")
