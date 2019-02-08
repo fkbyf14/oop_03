@@ -14,8 +14,9 @@ class ValidationError(Exception):
 
 
 class Field(object):
-    def __init__(self, field):
-        self.field = field
+    def __init__(self, required=True, nullable=True):
+        self.required = required
+        self.nullable = nullable
         self.label = None
 
     def __get__(self, instance, owner):
@@ -24,10 +25,13 @@ class Field(object):
 
     def __set__(self, instance, value):
         print '__set__'
-        instance.__dict__[self.label] = value
+        if self.nullable is False and len(value) == 0:
+            raise ValueError("{} field can't be empty".format(self.label))
+        if len(value) != 0 and self.validation():
+            instance.__dict__[self.label] = value
 
-    def __str__(self):
-        return "{}".format(self.field)
+    #def __str__(self):
+        #return "{}".format(self.field)
 
 
 class CharField(Field):
@@ -116,7 +120,7 @@ class ClientIDsField(Field):
         return self
 
 
-class Request(type):
+class DeclarativeRequestsMetaclass(type):
     account = CharField(required=False, nullable=True)
     login = CharField(required=True, nullable=True)
     token = CharField(required=True, nullable=True)
@@ -133,27 +137,46 @@ class Request(type):
     client_ids = ClientIDsField(required=True)
     date = DateField(required=False, nullable=True)
 
-    declared_fields = []
 
-    def __new__(cls, name, bases, attributedict):
-        global declared_fields
+    def __new__(cls, name, bases, attribute_dict):
+        declared_fields = []
         # find all requests, auto-set their labels
-        for key, value in attributedict.items():
+        for key, value in attribute_dict.items():
             if isinstance(value, Field):
                 declared_fields.append((key, value))
                 value.label = key
-        return super(Request, cls).__new__(cls, attributedict)
+        new_class = super(DeclarativeRequestsMetaclass, cls).__new__(cls, attribute_dict)
+        new_class.declared_fields = declared_fields
+        return new_class
 
 
     def __init__(cls, name, bases, attributedict):
-        global declared_fields
+        #global declared_fields
         for key, value in attributedict.items():
             if (key, value) in declared_fields:
                 key = Field(value)
 
 
-class MethodRequest(object):
-    __metaclass__ = Request
+class BaseRequest(object):
+    _metaclass__ = DeclarativeRequestsMetaclass
+
+    def __init__(self, data=None):
+        self.data = data or {}
+        self.errors = {}
+
+        for name in self.declared_fields:
+            value = self.data.get(name)
+        try:
+            setattr(self, name, value)
+        except ValidationError as e:
+            self.errors.update({name: e.message})
+
+    def is_valid(self):
+        return not self.errors
+
+
+class MethodRequest(BaseRequest):
+
     account = CharField(required=False, nullable=True)
     login = CharField(required=True, nullable=True)
     token = CharField(required=True, nullable=True)
@@ -173,8 +196,7 @@ class MethodRequest(object):
         return self.method == CLIENTS_INTERESTS
 
 
-class OnlineScoreRequest(Request):
-    __metaclass__ = Request
+class OnlineScoreRequest(BaseRequest):
     first_name = CharField(required=False, nullable=True)
     last_name = CharField(required=False, nullable=True)
     email = EmailField(required=False, nullable=True)
@@ -183,8 +205,7 @@ class OnlineScoreRequest(Request):
     gender = GenderField(required=False, nullable=True)
 
 
-class ClientsInterestsRequest(Request):
-    __metaclass__ = Request
+class ClientsInterestsRequest(BaseRequest):
     client_ids = ClientIDsField(required=True)
     date = DateField(required=False, nullable=True)
 
