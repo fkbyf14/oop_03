@@ -10,7 +10,7 @@ import uuid
 from optparse import OptionParser
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
 from application_logic import OnlineScoreRequest, MethodRequest, \
-    ClientsInterestsRequest, count_score, count_interests
+    ClientsInterestsRequest, count_score, count_interests, get_score, get_interests
 
 LOGGING = ".logging/logging.txt"
 SALT = "Otus"
@@ -50,26 +50,36 @@ def check_auth(request):
 
 
 def method_handler(request, ctx, store):
-    req_body = request["body"]
-    method_request = MethodRequest(req_body.get("account"), req_body.get("login"), req_body.get("token"),
-                                   req_body.get("arguments"), req_body.get("method"))
+    response = dict()
+    body_of_request = request["body"]
+    method_request = MethodRequest(body_of_request)
 
-    arg = request["body"]["arguments"]
-    #if method_request.is_online_score:
-    if req_body.get("method") == "online_score":
+    if not method_request.is_valid():
+        return method_request.errors, INVALID_REQUEST
+
+    if not check_auth(method_request):
+        return ERRORS[FORBIDDEN], FORBIDDEN
+
+    arguments = request["body"]["arguments"]
+
+    if method_request.is_online_score:
         try:
-            score_request = OnlineScoreRequest(arg.get("phone"), arg.get("email"), arg.get("first_name"),
-                                               arg.get("last_name"), arg.get("birthday"), arg.get("gender"))
-            score_response = count_score(score_request)
-            response, code = score_response, OK
-        except BaseException as e:
+            ctx["has"] = method_request.data.keys()
+
+            if method_request.is_admin:
+                response["score"] = int(ADMIN_SALT)
+                return response, OK
+
+            response["score"] = get_score(arguments)
+
+            response, code = response, OK
+        except Exception as e:
             return e.args[0], INVALID_REQUEST
-    if req_body.get("method") == "clients_interests":
+    if method_request.is_clients_interests:
         try:
-            interests_request = ClientsInterestsRequest(arg.get("client_ids"), arg.get("date"))
-            interests_response = count_interests(interests_request)
-            response, code = interests_response, OK
-        except BaseException as e:
+            response = count_interests(arguments)
+            response, code = response, OK
+        except Exception as e:
             return e.args[0], INVALID_REQUEST
 
     return response, code
