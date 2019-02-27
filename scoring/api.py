@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import abc
+
 import json
 import datetime
 import logging
@@ -10,7 +10,7 @@ import uuid
 from optparse import OptionParser
 from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
 from application_logic import OnlineScoreRequest, MethodRequest, \
-    ClientsInterestsRequest, count_score, count_interests, get_score, get_interests
+    ClientsInterestsRequest, count_interests, get_score
 
 LOGGING = ".logging/logging.txt"
 SALT = "Otus"
@@ -61,10 +61,14 @@ def method_handler(request, ctx, store):
         return ERRORS[FORBIDDEN], FORBIDDEN
 
     arguments = request["body"]["arguments"]
+    try:
+        if method_request.is_online_score:
+            score_req = OnlineScoreRequest(arguments)
 
-    if method_request.is_online_score:
-        try:
-            ctx["has"] = method_request.data.keys()
+            if not score_req.is_valid():
+                return score_req.errors, INVALID_REQUEST
+
+            ctx["has"] = score_req.data.keys()
 
             if method_request.is_admin:
                 response["score"] = int(ADMIN_SALT)
@@ -73,14 +77,18 @@ def method_handler(request, ctx, store):
             response["score"] = get_score(arguments)
 
             response, code = response, OK
-        except Exception as e:
-            return e.args[0], INVALID_REQUEST
-    if method_request.is_clients_interests:
-        try:
+
+        if method_request.is_clients_interests:
+            interests_req = ClientsInterestsRequest(arguments)
+
+            if not interests_req.is_valid():
+                return interests_req.errors, INVALID_REQUEST
+
+            ctx["nclients"] = len(arguments["client_ids"])
             response = count_interests(arguments)
             response, code = response, OK
-        except Exception as e:
-            return e.args[0], INVALID_REQUEST
+    except Exception as e:
+        return e.args, INVALID_REQUEST
 
     return response, code
 

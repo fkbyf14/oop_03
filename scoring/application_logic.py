@@ -1,4 +1,5 @@
 import random
+from abc import abstractmethod
 from datetime import datetime
 
 ADMIN_LOGIN = "admin"
@@ -19,14 +20,14 @@ class Field(object):
         self.nullable = nullable
         self.label = None
 
+    @abstractmethod
+    def validation(self):
+        pass
+
     def __get__(self, instance, owner):
-        # print '__get__. Label = %s' % self.label
         return instance.__dict__.get(self.label, None)
 
     def __set__(self, instance, value):
-        # print '__set__'
-        # print "value is:", value, "label is:", self.label, self.required, self.nullable
-
         if value is None and self.required:
             raise ValidationError("\'{}\' is required field".format(self.label))
         if not value and not self.nullable:
@@ -43,10 +44,8 @@ class CharField(Field):
         super(CharField, self).__init__(required, nullable)
 
     def validation(self, value):
-        if self.label == "first_name" or self.label == "last_name":
-            for ch in value:
-                if not ch.isalpha():
-                    raise ValidationError("Name should consist of letters")
+        if not isinstance(value, str):
+            raise ValueError("Chars field should be a string")
         return True
 
 
@@ -55,19 +54,10 @@ class ArgumentsField(Field):
         super(ArgumentsField, self).__init__(required, nullable)
 
     def validation(self, args):
-        """
-        try:
-            for key in args:
-
-                if not isinstance(key, str) or not (isinstance(args.get(key), str)
-                                                    or isinstance(args.get(key), int) or isinstance(args.get(key),
-                                                                                                    dict)):
-                    raise ValidationError
-                return True
-        except Exception:
+        if not isinstance(args, dict):
             raise ValidationError("Oops..!Argument should be in line with json")
-"""
         return True
+
 
 class PhoneField(Field):
     def __init__(self, required, nullable):
@@ -75,6 +65,9 @@ class PhoneField(Field):
 
     def validation(self, value):
         value = str(value)
+        for val in value:
+            if not val.isdigit():
+                raise ValidationError("Oops..! Phone number must consist of integers")
         if value[0] != "7":
             raise ValidationError("Oops..! International code in phone number must equal 7")
         if len(value) != 11:
@@ -92,13 +85,25 @@ class EmailField(CharField):
         return True
 
 
+class NameField(CharField):
+    def __init__(self, required, nullable):
+        super(NameField, self).__init__(required, nullable)
+
+    def validation(self, value):
+        for ch in value:
+            if not ch.isalpha():
+                raise ValidationError("Oops..! Email must contain the @ character")
+        return True
+
+
 class BirthDayField(Field):
     def __init__(self, required, nullable):
         super(BirthDayField, self).__init__(required, nullable)
 
     def validation(self, value):
         delta = datetime.now() - datetime.strptime(value, "%d.%m.%Y")
-        if delta.days > 365 * 70:
+        days_in_70_years = (70 // 4) * 366 + (70 - 70 // 4) * 365
+        if delta.days > days_in_70_years:
             raise ValidationError("Oops..! The age should not exceed 70")
         return True
 
@@ -125,18 +130,6 @@ class DateField(Field):
 class ClientIDsField(Field):
     def __init__(self, required, nullable):
         super(ClientIDsField, self).__init__(required, nullable)
-        self.offset = 0
-
-    def next(self, value):
-        if self.offset >= len(value):
-            raise StopIteration
-        else:
-            item = value[self.offset]
-            self.offset += 1
-            return item
-
-    def __iter__(self):
-        return self
 
     def validation(self, value):
         if not isinstance(value, list):
@@ -153,7 +146,7 @@ class DeclarativeRequestsMetaclass(type):
         # find all requests, auto-set their labels
         for key, value in attribute_dict.items():
             if isinstance(value, Field):
-                declared_fields.append((key, value))
+                declared_fields.append(key)
                 value.label = key
         new_class = super(DeclarativeRequestsMetaclass, mcs).__new__(mcs, name, bases, attribute_dict)
         new_class.declared_fields = declared_fields
@@ -167,12 +160,9 @@ class BaseRequest(object):
     def __init__(self, data=None):
         self.data = data or {}
         self.errors = {}
-        # print "data is", data
-        # print "self.declared_f", self.declared_fields
-        for name, _ in self.declared_fields:
-            # print name
+        for name in self.declared_fields:
             value = self.data.get(name)
-            # print "value is", value
+
             try:
                 setattr(self, name, value)
             except ValidationError as e:
@@ -205,24 +195,9 @@ class MethodRequest(BaseRequest):
         return self.method == CLIENTS_INTERESTS
 
 
-method_req = {"login": "admin", "token": "toktok", "arguments": {"gender": 0, "birthday": "01.01.2000"},
-              "method": "clients_interests"}
-m = MethodRequest(method_req)
-print m.errors
-# print "data is", m.data
-# print "__dict__ iiiis", m.__dict__
-# print "method is", m.method, type(m.method)
-# if m.is_admin:
-#    print "Truuuue"
-# else:
-#    print "Falseee"
-# print m.data
-# print "m.ERRORS is:", m.errors
-
-
 class OnlineScoreRequest(BaseRequest):
-    first_name = CharField(required=False, nullable=True)
-    last_name = CharField(required=False, nullable=True)
+    first_name = NameField(required=False, nullable=True)
+    last_name = NameField(required=False, nullable=True)
     email = EmailField(required=False, nullable=True)
     phone = PhoneField(required=False, nullable=True)
     birthday = BirthDayField(required=False, nullable=True)
@@ -231,17 +206,14 @@ class OnlineScoreRequest(BaseRequest):
     def __init__(self, data):
         super(OnlineScoreRequest, self).__init__(data)
 
-        pair_1 = data.get("first_name") and data.get("last_name")
-        pair_2 = data.get("phone") and data.get("email")
-        pair_3 = data.get("gender") and data.get("birthday")
-        if not pair_1 or not pair_2 or not pair_3:
-            raise ValidationError("Request to get_score should consist of pair values")
+    def is_valid(self):
+        pair_1 = self.data.get("first_name") and self.data.get("last_name")
+        pair_2 = self.data.get("phone") and self.data.get("email")
+        pair_3 = self.data.get("birthday") and self.data.get("gender") is not None
+        if not pair_1 and not pair_2 and not pair_3:
+            self.errors.update({"ValidationError": "Request to get_score should consist of pair values"})
 
-
-# on_req = {"first_name": "aly", "last_name": "lolovich", "email": "i@lol",
-#         "phone": 79523939611, "birthday": "11.12.1970", "gender": 1}
-# on = OnlineScoreRequest(on_req)
-# print on.data
+        return not self.errors
 
 
 class ClientsInterestsRequest(BaseRequest):
@@ -252,19 +224,6 @@ class ClientsInterestsRequest(BaseRequest):
         super(ClientsInterestsRequest, self).__init__(data)
 
 
-# clients_req = {"client_ids": (1, 2, 3, 4)}
-# cl = ClientsInterestsRequest(clients_req)
-# print cl.errors
-
-
-class OnlineScoreResponse(object):
-    def __init__(self, score):
-        self.score = score
-
-    def __str__(self):
-        return self.score
-
-
 def get_score(arg):
     phone = arg.get("phone")
     email = arg.get("email")
@@ -273,10 +232,6 @@ def get_score(arg):
     birthday = arg.get("birthday")
     gender = arg.get("gender")
 
-    # if arg.get("birthday"):
-    #    birthday = BirthDayField(birthday).birthday
-    # if first_name == ADMIN_LOGIN:
-    #    return ADMIN_SCORE
     score = 0
     if phone:
         score += 1.5
@@ -292,12 +247,6 @@ def get_score(arg):
 def get_interests(cid):
     interests = ["cars", "pets", "travel", "hi-tech", "sport", "music", "books", "tv", "cinema", "geek", "otus"]
     return random.sample(interests, 2)
-
-
-def count_score(req):
-    score = get_score(req.phone, req.email, req.birthday, req.gender, req.first_name, req.last_name)
-    c = OnlineScoreResponse(score)
-    return c
 
 
 def count_interests(req):
