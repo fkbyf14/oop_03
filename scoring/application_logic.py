@@ -21,7 +21,11 @@ class Field(object):
         self.label = None
 
     @abstractmethod
-    def validation(self):
+    def validation(self, value):
+        pass
+
+    @abstractmethod
+    def is_empty(self, value):
         pass
 
     def __get__(self, instance, owner):
@@ -45,8 +49,11 @@ class CharField(Field):
 
     def validation(self, value):
         if not isinstance(value, str):
-            raise ValueError("Chars field should be a string")
+            raise ValueError("Oops..!Chars field should be a string")
         return True
+
+    def is_empty(self, value):
+        return False if not value else True
 
 
 class ArgumentsField(Field):
@@ -74,6 +81,9 @@ class PhoneField(Field):
             raise ValidationError("Oops..! Length of phone number must equal 11")
         return True
 
+    def is_empty(self, value):
+        return False if not value else True
+
 
 class EmailField(CharField):
     def __init__(self, required, nullable):
@@ -81,7 +91,7 @@ class EmailField(CharField):
 
     def validation(self, value):
         if '@' not in value:
-            raise ValidationError("Oops..! Email must contain the @ character")
+            raise ValidationError("Oops..! Email must contain 'at' character")
         return True
 
 
@@ -92,7 +102,7 @@ class NameField(CharField):
     def validation(self, value):
         for ch in value:
             if not ch.isalpha():
-                raise ValidationError("Oops..! Email must contain the @ character")
+                raise ValidationError("Oops..! Name must consist only of letters")
         return True
 
 
@@ -186,14 +196,6 @@ class MethodRequest(BaseRequest):
     def is_admin(self):
         return self.login == ADMIN_LOGIN
 
-    @property
-    def is_online_score(self):
-        return self.method == ONLINE_SCORE
-
-    @property
-    def is_clients_interests(self):
-        return self.method == CLIENTS_INTERESTS
-
 
 class OnlineScoreRequest(BaseRequest):
     first_name = NameField(required=False, nullable=True)
@@ -210,7 +212,7 @@ class OnlineScoreRequest(BaseRequest):
         pair_1 = self.data.get("first_name") and self.data.get("last_name")
         pair_2 = self.data.get("phone") and self.data.get("email")
         pair_3 = self.data.get("birthday") and self.data.get("gender") is not None
-        if not pair_1 and not pair_2 and not pair_3:
+        if not (pair_1 or pair_2 or pair_3):
             self.errors.update({"ValidationError": "Request to get_score should consist of pair values"})
 
         return not self.errors

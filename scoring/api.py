@@ -62,13 +62,13 @@ def method_handler(request, ctx, store):
 
     arguments = request["body"]["arguments"]
     try:
-        if method_request.is_online_score:
+        if method_request.method == 'online_score':
             score_req = OnlineScoreRequest(arguments)
 
             if not score_req.is_valid():
                 return score_req.errors, INVALID_REQUEST
 
-            ctx["has"] = score_req.data.keys()
+            ctx["has"] = {k for k, v in score_req.iteritems() if v}
 
             if method_request.is_admin:
                 response["score"] = int(ADMIN_SALT)
@@ -78,7 +78,7 @@ def method_handler(request, ctx, store):
 
             response, code = response, OK
 
-        if method_request.is_clients_interests:
+        elif method_request.method == 'clients_interests':
             interests_req = ClientsInterestsRequest(arguments)
 
             if not interests_req.is_valid():
@@ -87,6 +87,8 @@ def method_handler(request, ctx, store):
             ctx["nclients"] = len(arguments["client_ids"])
             response = count_interests(arguments)
             response, code = response, OK
+        else:
+            return ERRORS[NOT_FOUND], NOT_FOUND
     except Exception as e:
         return e.args, INVALID_REQUEST
 
