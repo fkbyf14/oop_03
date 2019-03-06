@@ -24,9 +24,8 @@ class Field(object):
     def validation(self, value):
         pass
 
-    @abstractmethod
     def is_empty(self, value):
-        pass
+        return bool(value)
 
     def __get__(self, instance, owner):
         return instance.__dict__.get(self.label, None)
@@ -34,7 +33,7 @@ class Field(object):
     def __set__(self, instance, value):
         if value is None and self.required:
             raise ValidationError("\'{}\' is required field".format(self.label))
-        if not value and not self.nullable:
+        if self.is_empty(value) and not self.nullable:
             raise ValidationError("\'{}\'-field can't be empty".format(self.label))
         if value is not None and self.validation(value):
             instance.__dict__[self.label] = value
@@ -51,9 +50,6 @@ class CharField(Field):
         if not isinstance(value, str):
             raise ValueError("Oops..!Chars field should be a string")
         return True
-
-    def is_empty(self, value):
-        return False if not value else True
 
 
 class ArgumentsField(Field):
@@ -80,9 +76,6 @@ class PhoneField(Field):
         if len(value) != 11:
             raise ValidationError("Oops..! Length of phone number must equal 11")
         return True
-
-    def is_empty(self, value):
-        return False if not value else True
 
 
 class EmailField(CharField):
@@ -126,6 +119,9 @@ class GenderField(Field):
         if value not in (0, 1, 2):
             raise ValidationError("Oops..! Error in gender")
         return True
+
+    def is_empty(self, value):
+        return False if value == "" else True
 
 
 class DateField(Field):
